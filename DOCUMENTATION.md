@@ -4,7 +4,12 @@
 
 Preptimize is a browser-based interview preparation platform. It guides job seekers through structured practice sessions: pick a topic, speak your answers out loud, and receive AI-generated scores and feedback — all without creating an account or leaving the browser.
 
-No backend required for the core experience. Speech recognition runs natively in the browser. Scores are saved locally so progress persists across sessions.
+Two modes are available:
+
+- **Classic Mode** — Practice with curated, expert-crafted questions across 9 topics
+- **Tailored Mode** — Upload your CV and optionally a job posting URL; the AI generates personalized questions specific to your background and target role
+
+No account required. Speech recognition runs natively in the browser. Scores are saved locally so progress persists across sessions.
 
 ---
 
@@ -14,7 +19,8 @@ No backend required for the core experience. Speech recognition runs natively in
 
 - Node.js 18+
 - A modern browser (Chrome or Edge recommended — required for Web Speech API)
-- A [Groq API key](https://console.groq.com) for AI scoring
+- A [Groq API key](https://console.groq.com) for AI scoring and question generation
+- A [Tavily API key](https://app.tavily.com) for job posting URL extraction (Tailored Mode)
 
 ### Local Setup
 
@@ -22,9 +28,11 @@ No backend required for the core experience. Speech recognition runs natively in
 # 1. Install dependencies
 npm install
 
-# 2. Copy the env template and fill in your key
+# 2. Copy the env template and fill in your keys
 cp .env.example .env
-# Edit .env and set VITE_GROQ_API_KEY=your_key_here
+# Edit .env and set:
+#   VITE_GROQ_API_KEY=your_groq_key
+#   TAVILY_API_KEY=your_tavily_key
 
 # 3. Start the dev server
 npm run dev
@@ -35,19 +43,40 @@ npm run dev
 | Variable | Where used | Purpose |
 |---|---|---|
 | `VITE_GROQ_API_KEY` | Browser (dev only) | Direct Groq API calls on localhost |
-| `GROQ_API_KEY` | Vercel serverless | Groq API calls in production via `/api/score` |
+| `GROQ_API_KEY` | Vercel serverless | Groq API calls in production via `/api/score` and `/api/generate-tailored` |
+| `TAVILY_API_KEY` | Vercel serverless | Job posting URL extraction via Tavily in production |
 
-> In production, the frontend never holds the API key. All AI calls are proxied through the Vercel serverless function at `/api/score`.
+> In production, the frontend never holds any API key. All AI calls are proxied through Vercel serverless functions.
 
 ---
 
 ## Application Flow
+
+### Classic Mode
 
 ```
 Topic Selection → Quiz Session (3 questions) → Results View
        ↑                                              |
        └──────────── "Back to Topics" ───────────────┘
 ```
+
+### Tailored Mode
+
+```
+Topic Selection (Tailored toggle)
+       ↓
+CV Upload Screen
+  ├── Upload PDF/TXT CV (required, up to 5MB / 6000 chars)
+  └── Job Posting URL (optional — LinkedIn, company careers, etc.)
+       ↓
+"Start Tailored Session" → Single Groq call generates all 9 questions
+       ↓
+Topic Grid (cards show "✦ Tailored" or "↓ Classic" badges)
+       ↓
+Quiz Session (3 tailored questions) → Results View
+```
+
+---
 
 ### 1. Topic Selection Screen
 
@@ -57,9 +86,18 @@ The landing screen. Topics are grouped into three categories:
 - **Technical** — System Design, Debugging & Problem Solving, Code Quality & Best Practices
 - **Leadership** — Driving Results, Mentoring & Coaching, Strategic Thinking
 
-Each topic card shows the topic name, a short description, question count, and your previous best score (if any).
+A **Classic / Tailored** mode toggle sits in the top-right corner. Switching to Tailored shows the CV upload interface. Switching back to Classic clears all tailored state.
 
-### 2. Quiz Session Screen
+### 2. CV Upload Screen (Tailored Mode only)
+
+- Drag-and-drop or click-to-upload zone for PDF or TXT files (max 5 MB)
+- Displays filename and character count after successful parse
+- Optional job posting URL field — fetched server-side via Tavily (handles LinkedIn, JS-rendered pages, company career sites)
+- "Start Tailored Session" CTA — disabled until CV is parsed
+- Generates all 9 tailored questions in a single Groq API call
+- Auto-retries once on 429 rate limit errors
+
+### 3. Quiz Session Screen
 
 After selecting a topic, you answer 3 questions one at a time by speaking into your microphone.
 
@@ -70,15 +108,14 @@ After selecting a topic, you answer 3 questions one at a time by speaking into y
 - The "Next" button activates once a transcript is saved
 - On the final question, "Next" becomes "Finish" and navigates to results
 
-### 3. Results View
+### 4. Results View
 
 After completing all 3 questions, your answers are sent to the AI scorer. While scoring is in progress, a loading spinner is shown.
 
 Once complete, you see:
 - An overall score (0–100) displayed in a circular score ring
 - Per-question feedback cards, each showing:
-  - The question text
-  - Your transcript
+  - The question text and your transcript
   - Content score and tone score (with visual bars)
   - Commentary on what worked and what didn't
   - Tone analysis
@@ -96,8 +133,6 @@ All scores use **0–100**.
 
 ### Per-Question Dimensions
 
-Each answer is evaluated on two axes:
-
 | Dimension | What it measures | Range |
 |---|---|---|
 | `questionScore` | Content quality, structure, relevance | 0–100 |
@@ -113,7 +148,7 @@ Each answer is evaluated on two axes:
 
 ### Overall Score Calculation
 
-The overall score is always computed locally — never trusted from the AI response:
+Always computed locally — never trusted from the AI response:
 
 ```ts
 Math.round(sum(questionScores) / feedback.length)
@@ -141,10 +176,13 @@ Math.round(sum(questionScores) / feedback.length)
 | Build tool | Vite |
 | Styling | Tailwind CSS |
 | Speech | Web Speech API (browser-native) |
+| PDF Parsing | pdfjs-dist (client-side) |
+| Job URL Extraction | Tavily API (server-side) |
 | AI Scoring | Groq API — `llama-3.3-70b-versatile` |
+| AI Question Generation | Groq API — `llama-3.3-70b-versatile` |
 | State | React Context + useState |
 | Persistence | localStorage |
-| Deployment | Vercel (SPA + serverless function) |
+| Deployment | Vercel (SPA + serverless functions) |
 | Testing | Vitest + @testing-library/react + fast-check |
 
 ---
@@ -152,54 +190,71 @@ Math.round(sum(questionScores) / feedback.length)
 ### High-Level System Diagram
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                          Browser (SPA)                           │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                        App.tsx                          │    │
-│  │                    (entry, no router)                   │    │
-│  └───────────────────────┬─────────────────────────────────┘    │
-│                          │                                       │
-│              ┌───────────▼────────────┐                         │
-│              │       AppProvider      │  React Context           │
-│              │  (global state store)  │  useState only           │
-│              └───────────┬────────────┘                         │
-│                          │ screen switch                         │
-│          ┌───────────────┼───────────────┐                      │
-│          ▼               ▼               ▼                      │
-│  ┌──────────────┐ ┌────────────┐ ┌─────────────┐               │
-│  │    Topic     │ │    Quiz    │ │   Results   │               │
-│  │  Selection   │ │  Session   │ │    View     │               │
-│  │   Screen     │ │   Screen   │ │             │               │
-│  └──────┬───────┘ └─────┬──────┘ └──────┬──────┘               │
-│         │               │               │                       │
-│         │        ┌──────┴──────┐        │                       │
-│         │        │  Components │        │                       │
-│         │        │  Mic Button │        │                       │
-│         │        │  Rec Indic. │        │                       │
-│         │        │  PaperPlane │        │                       │
-│         │        └──────┬──────┘        │                       │
-│         │               │               │                       │
-│  ┌──────▼───────────────▼───────────────▼──────┐               │
-│  │                  Hooks Layer                 │               │
-│  │  useSpeechRecognition │ useScoreStore        │               │
-│  │  useAnthropicScorer   │ useSessionHistory    │               │
-│  └──────────────────┬────────────┬─────────────┘               │
-│                     │            │                              │
-│              Web Speech API  localStorage                       │
-│              (browser-native)                                   │
-└─────────────────────┬────────────────────────────────────────────┘
-                      │ HTTPS POST /api/score (prod)
-                      │ HTTPS POST groq.com   (dev)
-         ┌────────────▼────────────┐
-         │   Vercel Serverless     │  api/score.ts
-         │   (Node.js 20.x)        │  holds GROQ_API_KEY
-         └────────────┬────────────┘
-                      │
-         ┌────────────▼────────────┐
-         │      Groq API           │
-         │  llama-3.3-70b-versatile│
-         └─────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                            Browser (SPA)                             │
+│                                                                      │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │                          App.tsx                              │  │
+│  └──────────────────────────┬────────────────────────────────────┘  │
+│                             │                                        │
+│              ┌──────────────▼──────────────┐                        │
+│              │         AppProvider          │  Global state          │
+│              │   + TailoredModeProvider     │  (screen, topic, etc.) │
+│              └──────────────┬──────────────┘                        │
+│                             │ screen switch                          │
+│          ┌──────────────────┼──────────────────┐                    │
+│          ▼                  ▼                  ▼                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │    Topic     │  │     Quiz     │  │   Results    │              │
+│  │  Selection   │  │   Session    │  │    View      │              │
+│  │   Screen     │  │   Screen     │  │              │              │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘              │
+│         │                 │                  │                       │
+│  ┌──────▼──────┐          │                  │                       │
+│  │ CVUpload    │          │                  │                       │
+│  │ Screen      │          │                  │                       │
+│  │ (Tailored)  │          │                  │                       │
+│  └──────┬──────┘          │                  │                       │
+│         │                 │                  │                       │
+│  ┌──────▼─────────────────▼──────────────────▼──────┐               │
+│  │                     Hooks Layer                   │               │
+│  │  useSpeechRecognition  │  useScoreStore           │               │
+│  │  useAnthropicScorer    │  useSessionHistory       │               │
+│  │  useCVParser           │  useTailoredQuestions    │               │
+│  │  useTopicMastery       │  useQuestionGenerator    │               │
+│  └──────────────┬─────────────────┬─────────────────┘               │
+│                 │                 │                                  │
+│          Web Speech API      localStorage                            │
+│          pdfjs-dist                                                  │
+└─────────────────┬───────────────────────────────────────────────────┘
+                  │
+        ┌─────────┴──────────┐
+        │                    │
+        ▼                    ▼
+┌──────────────┐    ┌──────────────────┐
+│ /api/score   │    │ /api/generate-   │
+│ (Vercel fn)  │    │ tailored         │
+│ AI Scoring   │    │ (Vercel fn)      │
+└──────┬───────┘    │ Question Gen     │
+       │            └────────┬─────────┘
+       │                     │
+       └──────────┬──────────┘
+                  ▼
+        ┌──────────────────┐
+        │    Groq API      │
+        │ llama-3.3-70b    │
+        └──────────────────┘
+
+        ┌──────────────────┐
+        │ /api/fetch-job-  │
+        │ posting          │
+        │ (Vercel fn)      │
+        └────────┬─────────┘
+                 ▼
+        ┌──────────────────┐
+        │   Tavily API     │
+        │ (URL extraction) │
+        └──────────────────┘
 ```
 
 ---
@@ -208,24 +263,23 @@ Math.round(sum(questionScores) / feedback.length)
 
 ```
 App
-└── AppProvider                        (React Context — global state)
-    ├── TopicSelectionScreen
-    │   ├── HistoryScreen              (toggled via local state)
-    │   └── TopicCard ×9
-    ├── QuizSessionScreen
-    │   ├── PaperPlaneAnimation        (transition effect on Next)
-    │   ├── MicrophoneButton
-    │   └── RecordingIndicator
-    └── ResultsView
-        ├── ScoreRing                  (SVG circular score display)
-        └── FeedbackCard ×3
+└── AppProvider                          (global state — screen, topic, transcripts)
+    └── TailoredModeProvider             (tailored state — mode, cvText, questions)
+        ├── TopicSelectionScreen
+        │   ├── CVUploadScreen           (Tailored Mode only)
+        │   ├── HistoryScreen            (toggled via local state)
+        │   └── TopicCard ×9
+        ├── QuizSessionScreen
+        │   ├── MicrophoneButton
+        │   └── RecordingIndicator
+        └── ResultsView
+            ├── ScoreRing
+            └── FeedbackCard ×3
 ```
 
 ---
 
 ### State Machine
-
-`AppContext` drives all navigation. There is no router — screen transitions are pure state changes.
 
 ```
                     selectTopic(topic)
@@ -238,234 +292,93 @@ App
         └──────────────────────────────── results
 ```
 
-State shape:
-
-```ts
-AppState {
-  screen: 'topic-selection' | 'quiz-session' | 'results'
-  selectedTopic: Topic | null
-  currentQuestionIndex: 0 | 1 | 2       // never exceeds 2
-  transcripts: string[]                  // indexed by question
-  scoringResult: ScoringResult | null
-}
-```
-
-Context actions:
-
-| Action | Effect |
-|---|---|
-| `selectTopic(topic)` | Sets `selectedTopic`, transitions to `quiz-session` |
-| `saveTranscript(index, text)` | Stores transcript at given question index |
-| `advanceQuestion()` | Increments index, or transitions to `results` if at index 2 |
-| `goBackToTopics()` | Full state reset back to `initialState` |
-| `setScoringResult(result)` | Stores the completed `ScoringResult` |
-
 ---
 
-### Data Flow: Full Session
+### Tailored Mode Data Flow
 
 ```
-1. App loads
-   └── TopicSelectionScreen renders
-       ├── groupTopicsByCategory(topics) → groups by Behavioral/Technical/Leadership
-       ├── useScoreStore.allScores → reads localStorage for previous scores
-       └── TopicCard renders per topic with optional score badge
+1. User clicks "Tailored" toggle
+   └── TailoredModeContext.mode = 'tailored'
+       └── CVUploadScreen renders
 
-2. User selects a topic
-   └── selectTopic(topic) → screen: 'quiz-session'
+2. User uploads CV (PDF or TXT)
+   └── useCVParser
+       ├── Validates MIME type + file size (≤5MB)
+       ├── PDF → pdfjs-dist extracts text (client-side)
+       ├── TXT → FileReader reads UTF-8
+       └── Stores up to 6000 chars in TailoredModeContext.cvText
 
-3. Quiz session (repeated 3×)
-   ├── QuizSessionScreen renders current question
-   ├── User clicks MicrophoneButton
-   │   └── useSpeechRecognition.startRecording()
-   │       └── window.SpeechRecognition starts
-   │           ├── onresult → accumulates finalChunk into transcriptRef
-   │           │             → sets interimTranscript for live display
-   │           └── onend   → auto-restarts if user hasn't stopped (handles silence)
-   ├── User clicks MicrophoneButton again
-   │   └── useSpeechRecognition.stopRecording()
-   │       └── stoppedByUserRef = true → recognition.stop()
-   ├── QuizSessionScreen detects isRecording → false + transcript present
-   │   └── saveTranscript(index, transcript) → AppContext.transcripts[index]
-   └── User clicks Next / Finish
-       ├── PaperPlaneAnimation plays (1.3s)
-       └── advanceQuestion() → next question or screen: 'results'
+3. User pastes job posting URL (optional)
+   └── POST /api/fetch-job-posting { url }
+       └── Tavily API extracts clean text from any URL
+           (handles LinkedIn, JS-rendered pages, company sites)
+           └── Stores up to 4000 chars in TailoredModeContext.jobPostingText
 
-4. Results
-   ├── ResultsView mounts
-   ├── Waits for all transcripts (max 3s timeout for late arrivals)
-   ├── useAnthropicScorer.submit(transcripts, questions)
-   │   ├── buildPrompt() → structured prompt with all Q&A pairs
-   │   ├── [production]  POST /api/score → Vercel fn → Groq API
-   │   ├── [development] POST groq.com directly with VITE_GROQ_API_KEY
-   │   ├── extractJSON(response) → validateResult() → computeOverallScore()
-   │   └── [on failure]  generateFallbackResult() → local heuristic scoring
-   ├── score + feedback set → ScoreRing + FeedbackCards render
-   └── useScoreStore.saveScore(topicId, score) → localStorage
-       useSessionHistory.saveSession(topic, result) → localStorage (last 50)
+4. User clicks "Start Tailored Session"
+   └── useTailoredQuestions.generate(cvText, jobPostingText)
+       ├── Sets all 9 topics to status: 'loading'
+       ├── POST /api/generate-tailored { cvText, jobText, topics[9] }
+       │   └── Single Groq call — generates all 9 questions at once
+       │       (avoids rate limit issues from multiple parallel calls)
+       │   └── Auto-retries once on 429 with retry-after delay
+       └── Parses response → sets each topic to status: 'ready' or 'fallback'
 
-5. User clicks "Back to Topics"
-   └── goBackToTopics() → full state reset → screen: 'topic-selection'
-       └── TopicCard now shows updated score badge
+5. Topic grid renders
+   ├── 'ready' → "✦ Tailored" badge, uses generated questions
+   ├── 'fallback' → "↓ Classic" badge, uses static questions
+   └── 'loading' → pulsing skeleton overlay, non-interactive
+
+6. User selects a topic
+   └── If status === 'ready': uses generated questions
+       If status === 'fallback': uses static questions
 ```
 
 ---
 
-### Speech Recognition Internals
+### Serverless Functions
 
-`useSpeechRecognition` wraps the browser's `SpeechRecognition` API with a few important behaviors:
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/score` | POST | Proxies scoring prompts to Groq. Holds `GROQ_API_KEY` server-side. |
+| `/api/generate-tailored` | POST | Generates all 9 tailored questions in a single Groq call. |
+| `/api/fetch-job-posting` | POST | Extracts clean text from any job posting URL via Tavily API. |
 
-- `continuous: true` — keeps listening across natural speech pauses
-- `interimResults: true` — fires partial results for live display
-- Auto-restart on `onend` — the browser stops recognition on silence; the hook restarts it automatically unless the user explicitly stopped (`stoppedByUserRef`)
-- Final transcript segments are accumulated in `transcriptRef` and joined with spaces, so pauses don't lose words
-- On `permission-denied` or `not-allowed` errors, `stoppedByUserRef` is set to prevent restart loops
-
-```
-startRecording()
-    │
-    ├── clears transcript state
-    ├── stoppedByUserRef = false
-    └── createAndStart('')
-            │
-            └── new SpeechRecognition()
-                    continuous: true
-                    interimResults: true
-                    │
-                    ├── onresult → accumulate finals, set interim
-                    ├── onerror → set error state, stop
-                    └── onend   → restart if !stoppedByUser
-
-stopRecording()
-    ├── stoppedByUserRef = true
-    └── recognition.stop()
-            └── onend fires → sees stoppedByUser → setIsRecording(false)
-```
+All functions use CommonJS (`api/package.json` sets `"type": "commonjs"`) to avoid ESM/CJS conflicts with Vercel's Node.js runtime.
 
 ---
 
-### Scoring Pipeline Internals
+### Scoring Pipeline
 
 ```
 submit(transcripts, questions)
     │
-    ├── buildPrompt()
-    │   └── formats all 3 Q&A pairs into a structured coach prompt
-    │       with explicit JSON schema in the instruction
+    ├── buildPrompt() → structured prompt with all 3 Q&A pairs
     │
-    ├── callGroq(apiKey, prompt)
-    │   ├── [prod]  POST /api/score  { prompt }
-    │   │           → Vercel fn adds Authorization header, calls Groq
-    │   └── [dev]   POST groq.com/openai/v1/chat/completions
-    │               model: llama-3.3-70b-versatile
-    │               temperature: 0.3
-    │               response_format: { type: 'json_object' }
+    ├── [production]  POST /api/score { prompt }
+    │   [development] POST groq.com directly (VITE_GROQ_API_KEY)
     │
-    ├── extractJSON(rawText)
-    │   ├── strips markdown code fences if present
-    │   ├── JSON.parse()
-    │   └── regex fallback: extracts first {...} block if parse fails
+    ├── extractJSON() → validateResult() → computeOverallScore()
+    │   └── overall score always computed locally
     │
-    ├── validateResult()
-    │   └── clamps all scores to 0–100, fills missing fields with defaults
-    │
-    ├── computeOverallScore()
-    │   └── Math.round(sum(questionScores) / feedback.length)
-    │       ← always local, never from AI response
-    │
-    └── [on any failure] generateFallbackResult()
-        └── heuristic scoring based on:
-            word count, STAR keywords, first-person language,
-            quantitative details, question type detection
+    └── [on failure] generateFallbackResult()
+        └── heuristic scoring: word count, STAR keywords,
+            first-person language, quantitative details
 ```
 
 ---
 
 ### Persistence Layer
 
-Two independent localStorage stores, both with graceful degradation (try/catch on all reads and writes):
-
 ```
 localStorage
 ├── "interview-prep-scores"
-│   └── Record<topicId, number>
-│       read on: TopicSelectionScreen mount (via useScoreStore.allScores)
-│       written on: ResultsView mount (after scoring completes)
+│   └── Record<topicId, number>  — best score per topic
 │
 └── "preptimize-session-history"
     └── SessionRecord[]  (capped at 50 entries)
-        read on: HistoryScreen open
-        written on: ResultsView mount (alongside score save)
 ```
 
----
-
-### Build & Deployment
-
-```
-Local dev:
-  npm run dev
-  └── Vite dev server
-      └── Browser calls Groq directly (VITE_GROQ_API_KEY)
-
-Production build:
-  npm run build
-  └── tsc (type check) + vite build → dist/
-
-Vercel deployment:
-  vercel.json
-  ├── buildCommand: "npm run build"
-  ├── outputDirectory: "dist"
-  ├── framework: "vite"
-  └── functions:
-      └── api/score.ts → Node.js 20.x serverless function
-          └── reads GROQ_API_KEY from Vercel env vars
-              proxies prompt to Groq, returns { text }
-```
-
-### localStorage Keys
-
-| Key | Contents |
-|---|---|
-| `interview-prep-scores` | `Record<topicId, number>` — best score per topic |
-| `preptimize-session-history` | Array of up to 50 past `SessionRecord` objects |
-
----
-
-## API & Scoring Pipeline
-
-### Local Development
-
-The frontend calls Groq directly:
-
-```
-Browser → https://api.groq.com/openai/v1/chat/completions
-          Authorization: Bearer VITE_GROQ_API_KEY
-```
-
-### Production (Vercel)
-
-The frontend detects production via `window.location.hostname !== 'localhost'` and routes through the serverless proxy:
-
-```
-Browser → POST /api/score (Vercel function)
-               ↓
-          Groq API (key stays server-side)
-```
-
-The proxy at `api/score.ts` holds `GROQ_API_KEY` as a Vercel environment variable — never exposed to the client.
-
-### Fallback Scorer
-
-When the Groq API is unavailable (network failure, rate limit, etc.), a local heuristic scorer runs instead. It analyzes:
-
-- Word count
-- Presence of STAR-method keywords (situation, task, action, result)
-- Use of first-person language
-- Quantitative details (numbers, metrics)
-- Question type (behavioral / technical / leadership)
-
-The fallback always produces real commentary based on the actual answer — never generic placeholder text.
+Tailored Mode state is **in-memory only** (React Context). It is never persisted to localStorage and resets on page refresh.
 
 ---
 
@@ -479,7 +392,7 @@ interface Topic {
   name: string;
   description: string;
   category: Category;
-  questions: string[];  // at least 3
+  questions: string[];
 }
 
 interface QuestionFeedback {
@@ -497,6 +410,17 @@ interface ScoringResult {
   score: number;             // 0–100, computed locally
   feedback: QuestionFeedback[];
 }
+
+// Tailored Mode
+type TailoredMode = 'classic' | 'tailored';
+type TailoredQuestionStatus = 'loading' | 'ready' | 'fallback';
+
+interface TailoredTopicEntry {
+  questions: string[];       // always exactly 3
+  status: TailoredQuestionStatus;
+}
+
+type TailoredQuestionMap = Record<string, TailoredTopicEntry>;
 ```
 
 ---
@@ -504,60 +428,25 @@ interface ScoringResult {
 ## Custom Hooks
 
 ### `useSpeechRecognition`
-
-Wraps the browser's `SpeechRecognition` API.
-
-```ts
-{
-  isRecording: boolean
-  transcript: string          // final transcript after stop
-  interimTranscript: string   // live text while recording
-  startRecording: () => void
-  stopRecording: () => void
-  error: 'permission-denied' | 'not-supported' | null
-  retry: () => void           // re-requests microphone permission
-}
-```
+Wraps the browser's `SpeechRecognition` API with auto-restart, interim results, and permission error handling.
 
 ### `useAnthropicScorer`
+Full scoring lifecycle — calls `/api/score` in production, Groq directly in dev, falls back to local heuristic scorer on failure.
 
-Handles the full scoring lifecycle.
+### `useCVParser`
+Client-side PDF/TXT parsing via pdfjs-dist. Validates MIME type and file size. Returns up to 6000 chars of extracted text.
 
-```ts
-{
-  score: number | null
-  feedback: QuestionFeedback[] | null
-  isLoading: boolean
-  error: 'config-error' | 'network-error' | 'api-error' | 'parse-error' | null
-  submit: (transcripts: string[], questions: string[]) => void
-  retry: () => void
-}
-```
+### `useTailoredQuestions`
+Sends a single POST to `/api/generate-tailored` with CV text, job text, and all 9 topic definitions. Handles 429 retry, JSON parsing, and per-topic fallback.
 
 ### `useScoreStore`
-
-Reads and writes best scores to localStorage.
-
-```ts
-{
-  getScore: (topicId: string) => number | null
-  saveScore: (topicId: string, score: number) => void
-  allScores: Record<string, number>
-}
-```
+Reads/writes best scores to localStorage.
 
 ### `useSessionHistory`
+Manages up to 50 past session records in localStorage.
 
-Manages a history of up to 50 past sessions.
-
-```ts
-{
-  history: SessionRecord[]
-  saveSession: (topic: Topic, result: ScoringResult) => SessionRecord
-  clearHistory: () => void
-  getTopicHistory: (topicId: string) => SessionRecord[]
-}
-```
+### `useTopicMastery`
+Tracks mastered topics (score ≥ 92) and advanced question generation.
 
 ---
 
@@ -565,47 +454,53 @@ Manages a history of up to 50 past sessions.
 
 | Scenario | Behavior |
 |---|---|
-| Microphone permission denied | Error message + Retry button that re-requests permission |
-| Browser doesn't support speech | Error message — no retry, user must switch browsers |
-| Groq API failure | Falls back to local heuristic scorer automatically |
-| Malformed AI response | JSON extraction with regex fallback; parse error state if unrecoverable |
-| Missing API key | `config-error` state surfaced to the user |
-| localStorage unavailable | Scores degrade gracefully — app continues to function |
+| Microphone permission denied | Error message + Retry button |
+| Browser doesn't support speech | Error message — user must switch browsers |
+| Groq API failure (scoring) | Falls back to local heuristic scorer |
+| Groq API 429 (tailored generation) | Auto-retries once after rate limit window |
+| Groq API failure (tailored generation) | All topics fall back to static questions |
+| Malformed AI response | JSON extraction with regex fallback |
+| CV file too large (>5MB) | Inline error, file rejected |
+| Unsupported CV file type | Inline error, file rejected |
+| Job URL unreachable / blocked | Inline warning, user can proceed without job context |
+| localStorage unavailable | Scores degrade gracefully |
 
 ---
 
-## Deployment
+## Build & Deployment
 
-### Vercel
+```
+Local dev:
+  npm run dev
+  └── Vite dev server
+      ├── Browser calls Groq directly (VITE_GROQ_API_KEY)
+      └── Tavily calls go through /api/fetch-job-posting (needs TAVILY_API_KEY)
 
-1. Push to GitHub and connect the repo to Vercel
-2. Set `GROQ_API_KEY` in the Vercel dashboard under Environment Variables
-3. Deploy — the `api/score.ts` serverless function is picked up automatically via `vercel.json`
+Production build:
+  npm run build
+  └── tsc + vite build → dist/
 
-`VITE_GROQ_API_KEY` is only needed locally and should never be set in Vercel.
+Vercel deployment:
+  vercel.json
+  ├── buildCommand: "npm run build"
+  ├── outputDirectory: "dist"
+  └── Serverless functions: api/score.ts, api/generate-tailored.ts, api/fetch-job-posting.ts
+
+Required Vercel environment variables:
+  GROQ_API_KEY     — Groq API key (server-side only)
+  TAVILY_API_KEY   — Tavily API key (server-side only)
+```
 
 ---
 
 ## Testing
 
 ```bash
-# Run all tests once
-npm test
-
-# Watch mode
-npm run test:watch
+npm test          # run all tests once
+npm run test:watch  # watch mode
 ```
 
-The test suite includes:
-
-- **Unit tests** — component rendering, hook behavior, edge cases
-- **Property-based tests** — using fast-check with 100+ iterations per property, covering:
-  - Topic grouping correctness
-  - Score persistence round-trips
-  - Quiz session state bounds
-  - Scoring result structure validity
-  - Session reset on back navigation
-- **Integration tests** — full session flow with mocked Speech API and mocked Groq API
+Test suite includes unit tests, property-based tests (fast-check, 100+ iterations), and integration tests.
 
 ---
 
@@ -613,17 +508,44 @@ The test suite includes:
 
 ```
 ├── api/
-│   └── score.ts              # Vercel serverless proxy for Groq
+│   ├── score.ts                  # Vercel fn — AI scoring proxy
+│   ├── generate-tailored.ts      # Vercel fn — tailored question generation
+│   ├── fetch-job-posting.ts      # Vercel fn — Tavily job URL extraction
+│   ├── package.json              # { "type": "commonjs" } — CJS override
+│   └── tsconfig.json
 ├── src/
-│   ├── components/           # Shared UI components
-│   ├── context/              # AppContext — global state
-│   ├── data/                 # Static topic data
-│   ├── hooks/                # Custom React hooks
-│   ├── screens/              # Top-level screen components
-│   ├── themes/               # Theme variants
-│   ├── types.ts              # Core TypeScript interfaces
-│   └── utils/                # Pure utility functions
-├── .env.example              # Environment variable template
-├── vercel.json               # Vercel deployment config
-└── vite.config.ts            # Vite build config
+│   ├── components/               # TopicCard, MicrophoneButton, etc.
+│   ├── context/
+│   │   ├── AppContext.tsx         # Global app state
+│   │   └── TailoredModeContext.tsx # Tailored mode state
+│   ├── data/                     # Static topic definitions
+│   ├── hooks/
+│   │   ├── useAnthropicScorer.ts
+│   │   ├── useCVParser.ts
+│   │   ├── useTailoredQuestions.ts
+│   │   ├── useSpeechRecognition.ts
+│   │   ├── useScoreStore.ts
+│   │   ├── useSessionHistory.ts
+│   │   ├── useTopicMastery.ts
+│   │   └── useQuestionGenerator.ts
+│   ├── screens/
+│   │   ├── TopicSelectionScreen.tsx
+│   │   ├── CVUploadScreen.tsx
+│   │   ├── QuizSessionScreen.tsx
+│   │   ├── ResultsView.tsx
+│   │   └── HistoryScreen.tsx
+│   ├── types.ts
+│   └── utils/
+├── .env.example
+├── vercel.json
+└── vite.config.ts
 ```
+
+---
+
+## Version History
+
+| Version | Description |
+|---|---|
+| v1.0-baseline | Classic Mode — AI scoring, speech recognition, mastery system, session history |
+| v1.1 | Tailored Mode — CV upload (pdfjs-dist), job URL extraction (Tavily), single-call question generation (Groq), 429 retry logic |

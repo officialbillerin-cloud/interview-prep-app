@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "name": "API Key Security Check",
+  "description": "Scans edited TypeScript/TSX files for hardcoded API keys or direct AI API calls that should go through the Vercel proxy",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "src/**/*.ts",
+      "src/**/*.tsx",
+      "api/**/*.ts"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Check this file for any hardcoded API keys, direct calls to external AI APIs (groq.com, googleapis.com, anthropic.com) that bypass the /api/score proxy, or any sensitive credentials. If found, flag them clearly and suggest the correct pattern from the api-keys.md steering file."
+  },
+  "workspaceFolderName": "interview-prep",
+  "shortName": "check-api-key-security"
+}

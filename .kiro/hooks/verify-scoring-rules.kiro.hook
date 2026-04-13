@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "name": "Verify Scoring Rules",
+  "description": "After a spec task completes, verifies the overall score is computed as a local average of questionScores, not taken from the AI response.",
+  "version": "1",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Check that the scoring implementation in src/hooks/useAnthropicScorer.ts follows the scoring-rules.md steering file: overall score must be computed locally as average of questionScores, all scores must be 0-100, and the fallback scorer must produce real commentary. Flag any violations."
+  },
+  "workspaceFolderName": "interview-prep",
+  "shortName": "verify-scoring-rules"
+}

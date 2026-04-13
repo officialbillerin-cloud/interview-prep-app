@@ -18,13 +18,32 @@ vi.mock('../../hooks/useScoreStore', () => ({
   useScoreStore: vi.fn(),
 }));
 
+vi.mock('../../hooks/useSessionHistory', () => ({
+  useSessionHistory: vi.fn(),
+}));
+
+vi.mock('../../hooks/useTopicMastery', () => ({
+  useTopicMastery: vi.fn(),
+  MASTERY_THRESHOLD: 92,
+}));
+
+vi.mock('../../hooks/useQuestionGenerator', () => ({
+  useQuestionGenerator: vi.fn(),
+}));
+
 import { useAppContext } from '../../context/AppContext';
 import { useAnthropicScorer } from '../../hooks/useAnthropicScorer';
 import { useScoreStore } from '../../hooks/useScoreStore';
+import { useSessionHistory } from '../../hooks/useSessionHistory';
+import { useTopicMastery } from '../../hooks/useTopicMastery';
+import { useQuestionGenerator } from '../../hooks/useQuestionGenerator';
 
 const mockUseAppContext = useAppContext as ReturnType<typeof vi.fn>;
 const mockUseAnthropicScorer = useAnthropicScorer as ReturnType<typeof vi.fn>;
 const mockUseScoreStore = useScoreStore as ReturnType<typeof vi.fn>;
+const mockUseSessionHistory = useSessionHistory as ReturnType<typeof vi.fn>;
+const mockUseTopicMastery = useTopicMastery as ReturnType<typeof vi.fn>;
+const mockUseQuestionGenerator = useQuestionGenerator as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,6 +72,10 @@ beforeEach(() => {
     saveScore: vi.fn(),
     allScores: {},
   });
+
+  mockUseSessionHistory.mockReturnValue({ saveSession: vi.fn(), history: [], clearHistory: vi.fn(), getTopicHistory: vi.fn() });
+  mockUseTopicMastery.mockReturnValue({ recordMastery: vi.fn(), saveGeneratedQuestions: vi.fn(), isMastered: vi.fn(), getMasteryRecord: vi.fn(), getGeneratedQuestions: vi.fn(), masteredList: [] });
+  mockUseQuestionGenerator.mockReturnValue({ state: 'idle', generateQuestions: vi.fn() });
 });
 
 // Arbitrary for a single QuestionFeedback
@@ -61,6 +84,9 @@ const questionFeedbackArb = (index: number) =>
     questionIndex: fc.constant(index),
     question: fc.string({ minLength: 1, maxLength: 80 }),
     transcript: fc.string({ minLength: 1, maxLength: 80 }),
+    questionScore: fc.integer({ min: 0, max: 100 }),
+    toneScore: fc.integer({ min: 0, max: 100 }),
+    toneAnalysis: fc.string({ minLength: 1, maxLength: 120 }),
     commentary: fc.string({ minLength: 1, maxLength: 120 }),
     improvementTips: fc.string({ minLength: 1, maxLength: 120 }),
   });
@@ -68,7 +94,7 @@ const questionFeedbackArb = (index: number) =>
 // Arbitrary for a full ScoringResult with exactly 3 feedback items
 const scoringResultArb: fc.Arbitrary<ScoringResult> = fc
   .tuple(
-    fc.integer({ min: 0, max: 10 }),
+    fc.integer({ min: 0, max: 100 }),
     questionFeedbackArb(0),
     questionFeedbackArb(1),
     questionFeedbackArb(2)

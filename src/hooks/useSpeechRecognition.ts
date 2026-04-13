@@ -12,16 +12,15 @@ export interface UseSpeechRecognitionReturn {
   retry: () => void;
 }
 
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
-  }
-}
+// Use any to avoid TypeScript DOM lib version issues with Speech API
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySpeechRecognition = any;
 
-function getSpeechRecognitionConstructor(): typeof SpeechRecognition | null {
+function getSpeechRecognitionConstructor(): AnySpeechRecognition | null {
   if (typeof window === 'undefined') return null;
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const w = window as any;
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
 }
 
 export function useSpeechRecognition(): UseSpeechRecognitionReturn {
@@ -32,8 +31,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     getSpeechRecognitionConstructor() === null ? 'not-supported' : null
   );
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  // Whether the user explicitly stopped (vs browser auto-stopping on silence)
+  const recognitionRef = useRef<AnySpeechRecognition>(null);
   const stoppedByUserRef = useRef(false);
   const transcriptRef = useRef('');
 
@@ -46,23 +44,16 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     recognition.interimResults = true;
     recognition.lang = 'en-US';
 
-    recognition.onstart = () => {
-      setIsRecording(true);
-    };
+    recognition.onstart = () => setIsRecording(true);
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: AnySpeechRecognition) => {
       let interim = '';
       let finalChunk = '';
-
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
-        if (result.isFinal) {
-          finalChunk += result[0].transcript;
-        } else {
-          interim += result[0].transcript;
-        }
+        if (result.isFinal) finalChunk += result[0].transcript;
+        else interim += result[0].transcript;
       }
-
       if (finalChunk) {
         const updated = transcriptRef.current
           ? transcriptRef.current + ' ' + finalChunk.trim()
@@ -73,7 +64,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
       setInterimTranscript(interim);
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: AnySpeechRecognition) => {
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         setError('permission-denied');
         stoppedByUserRef.current = true;
@@ -84,13 +75,8 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
 
     recognition.onend = () => {
       setInterimTranscript('');
-      // If user didn't explicitly stop, restart to handle silence pauses
       if (!stoppedByUserRef.current) {
-        try {
-          recognition.start();
-        } catch {
-          setIsRecording(false);
-        }
+        try { recognition.start(); } catch { setIsRecording(false); }
       } else {
         setIsRecording(false);
       }
@@ -98,7 +84,6 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
 
     recognitionRef.current = recognition;
     transcriptRef.current = existingTranscript;
-
     try {
       recognition.start();
     } catch {
@@ -108,11 +93,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
   }, []);
 
   const startRecording = useCallback(() => {
-    const SpeechRecognitionCtor = getSpeechRecognitionConstructor();
-    if (!SpeechRecognitionCtor) {
-      setError('not-supported');
-      return;
-    }
+    if (!getSpeechRecognitionConstructor()) { setError('not-supported'); return; }
     setError(null);
     setTranscript('');
     setInterimTranscript('');
@@ -123,25 +104,16 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
 
   const stopRecording = useCallback(() => {
     stoppedByUserRef.current = true;
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
+    if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; }
     setIsRecording(false);
     setInterimTranscript('');
   }, []);
 
   const retry = useCallback(() => {
     setError(null);
-    navigator.mediaDevices
-      .getUserMedia({ audio: true })
-      .then(stream => {
-        stream.getTracks().forEach(track => track.stop());
-        setError(null);
-      })
-      .catch(() => {
-        setError('permission-denied');
-      });
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream => { stream.getTracks().forEach(t => t.stop()); setError(null); })
+      .catch(() => setError('permission-denied'));
   }, []);
 
   return { isRecording, transcript, interimTranscript, startRecording, stopRecording, error, retry };

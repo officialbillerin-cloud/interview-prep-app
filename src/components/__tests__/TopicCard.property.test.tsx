@@ -21,7 +21,7 @@ describe('Property 2: TopicCard renders all required fields', () => {
   it('renders name, description, and question count for any topic', () => {
     fc.assert(
       fc.property(topicArb, (topic) => {
-        const { unmount } = render(<TopicCard topic={topic} score={null} onSelect={() => {}} />);
+        const { unmount } = render(<TopicCard topic={topic} score={null} category="Behavioral" mastered={false} hasNewQuestions={false} onSelect={() => {}} />);
         expect(screen.getByText(topic.name)).toBeTruthy();
         expect(screen.getByText(topic.description)).toBeTruthy();
         expect(screen.getByText(`${topic.questions.length} questions`)).toBeTruthy();
@@ -36,7 +36,7 @@ describe('Property 3: TopicCard score display matches stored score', () => {
   it('shows score indicator iff score is non-null', () => {
     fc.assert(
       fc.property(topicArb, fc.option(fc.integer({ min: 0, max: 10 }), { nil: null }), (topic, score) => {
-        const { unmount } = render(<TopicCard topic={topic} score={score} onSelect={() => {}} />);
+        const { unmount } = render(<TopicCard topic={topic} score={score} category="Behavioral" mastered={false} hasNewQuestions={false} onSelect={() => {}} />);
         const indicator = screen.queryByTestId('score-indicator');
         if (score !== null) {
           expect(indicator).toBeTruthy();

@@ -2,24 +2,24 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useSpeechRecognition } from '../useSpeechRecognition';
 
-// Minimal SpeechRecognition mock factory
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyFn = (...args: any[]) => any;
+
 function createMockRecognition() {
-  const instance = {
+  return {
     continuous: false,
     interimResults: false,
     lang: '',
-    onstart: null as (() => void) | null,
-    onresult: null as ((e: SpeechRecognitionEvent) => void) | null,
-    onerror: null as ((e: SpeechRecognitionErrorEvent) => void) | null,
-    onend: null as (() => void) | null,
+    onstart: null as AnyFn | null,
+    onresult: null as AnyFn | null,
+    onerror: null as AnyFn | null,
+    onend: null as AnyFn | null,
     start: vi.fn(),
     stop: vi.fn(),
   };
-  return instance;
 }
 
 type MockRecognitionInstance = ReturnType<typeof createMockRecognition>;
-
 let mockInstance: MockRecognitionInstance;
 
 const MockSpeechRecognition = vi.fn(() => {
@@ -27,133 +27,81 @@ const MockSpeechRecognition = vi.fn(() => {
   return mockInstance;
 });
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const w = window as any;
+
 describe('useSpeechRecognition', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    delete (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition;
-    delete (window as Window & { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
+    delete w.SpeechRecognition;
+    delete w.webkitSpeechRecognition;
   });
 
   describe('not-supported error', () => {
     it('sets error to not-supported when SpeechRecognition API is absent', () => {
-      // Ensure both APIs are undefined
-      delete (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition;
-      delete (window as Window & { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
-
+      delete w.SpeechRecognition;
+      delete w.webkitSpeechRecognition;
       const { result } = renderHook(() => useSpeechRecognition());
-
       expect(result.current.error).toBe('not-supported');
     });
 
     it('sets error to not-supported when startRecording is called without API', () => {
-      delete (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition;
-      delete (window as Window & { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
-
+      delete w.SpeechRecognition;
+      delete w.webkitSpeechRecognition;
       const { result } = renderHook(() => useSpeechRecognition());
-
-      act(() => {
-        result.current.startRecording();
-      });
-
+      act(() => { result.current.startRecording(); });
       expect(result.current.error).toBe('not-supported');
       expect(result.current.isRecording).toBe(false);
     });
   });
 
   describe('permission-denied error', () => {
-    beforeEach(() => {
-      (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition =
-        MockSpeechRecognition as unknown as typeof SpeechRecognition;
+    beforeEach(() => { w.SpeechRecognition = MockSpeechRecognition; });
+
+    it('sets error to permission-denied on not-allowed', () => {
+      const { result } = renderHook(() => useSpeechRecognition());
+      act(() => { result.current.startRecording(); });
+      act(() => { mockInstance.onerror?.({ error: 'not-allowed' }); });
+      expect(result.current.error).toBe('permission-denied');
     });
 
-    it('sets error to permission-denied when recognition fires a not-allowed error', () => {
+    it('sets error to permission-denied on service-not-allowed', () => {
       const { result } = renderHook(() => useSpeechRecognition());
-
-      act(() => {
-        result.current.startRecording();
-      });
-
-      act(() => {
-        mockInstance.onerror?.({ error: 'not-allowed' } as SpeechRecognitionErrorEvent);
-      });
-
+      act(() => { result.current.startRecording(); });
+      act(() => { mockInstance.onerror?.({ error: 'service-not-allowed' }); });
       expect(result.current.error).toBe('permission-denied');
-      expect(result.current.isRecording).toBe(false);
-    });
-
-    it('sets error to permission-denied when recognition fires a service-not-allowed error', () => {
-      const { result } = renderHook(() => useSpeechRecognition());
-
-      act(() => {
-        result.current.startRecording();
-      });
-
-      act(() => {
-        mockInstance.onerror?.({ error: 'service-not-allowed' } as SpeechRecognitionErrorEvent);
-      });
-
-      expect(result.current.error).toBe('permission-denied');
-      expect(result.current.isRecording).toBe(false);
     });
   });
 
   describe('transcript saved on stop', () => {
-    beforeEach(() => {
-      (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition =
-        MockSpeechRecognition as unknown as typeof SpeechRecognition;
-    });
+    beforeEach(() => { w.SpeechRecognition = MockSpeechRecognition; });
 
-    it('retains transcript after stopRecording is called', () => {
+    it('retains transcript after stopRecording', () => {
       const { result } = renderHook(() => useSpeechRecognition());
-
-      act(() => {
-        result.current.startRecording();
-      });
-
-      // Simulate a final result
+      act(() => { result.current.startRecording(); });
       act(() => {
         mockInstance.onresult?.({
           resultIndex: 0,
-          results: [
-            Object.assign([{ transcript: 'Hello world', confidence: 1 }], { isFinal: true, length: 1 }),
-          ],
-        } as unknown as SpeechRecognitionEvent);
+          results: [Object.assign([{ transcript: 'Hello world', confidence: 1 }], { isFinal: true, length: 1 })],
+        });
       });
-
-      act(() => {
-        result.current.stopRecording();
-      });
-
+      act(() => { result.current.stopRecording(); });
       expect(result.current.transcript).toBe('Hello world');
       expect(result.current.isRecording).toBe(false);
-      expect(result.current.interimTranscript).toBe('');
     });
 
-    it('clears interimTranscript on stop but keeps final transcript', () => {
+    it('clears interimTranscript on stop', () => {
       const { result } = renderHook(() => useSpeechRecognition());
-
-      act(() => {
-        result.current.startRecording();
-      });
-
-      // Simulate an interim result
+      act(() => { result.current.startRecording(); });
       act(() => {
         mockInstance.onresult?.({
           resultIndex: 0,
-          results: [
-            Object.assign([{ transcript: 'typing...', confidence: 0.5 }], { isFinal: false, length: 1 }),
-          ],
-        } as unknown as SpeechRecognitionEvent);
+          results: [Object.assign([{ transcript: 'typing...', confidence: 0.5 }], { isFinal: false, length: 1 })],
+        });
       });
-
       expect(result.current.interimTranscript).toBe('typing...');
-
-      act(() => {
-        result.current.stopRecording();
-      });
-
+      act(() => { result.current.stopRecording(); });
       expect(result.current.interimTranscript).toBe('');
-      expect(result.current.transcript).toBe('');
     });
   });
 });

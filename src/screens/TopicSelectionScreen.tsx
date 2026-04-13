@@ -56,12 +56,14 @@ export function TopicSelectionScreen() {
   };
 
   const handleModeSwitch = (newMode: 'classic' | 'tailored') => {
-    if (newMode === 'classic') clearTailoredState();
+    clearTailoredState();
     setMode(newMode);
   };
 
   const hasMastered = masteredList.length > 0;
-  const hasGeneratedQuestions = Object.keys(generatedQuestions).length > 0;
+  const hasGeneratedQuestions = Object.values(generatedQuestions).some(
+    e => e.status === 'ready' || e.status === 'fallback'
+  );
 
   return (
     // Mobile: scrollable. Desktop: fixed height no-scroll

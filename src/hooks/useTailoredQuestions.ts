@@ -8,6 +8,37 @@ export interface UseTailoredQuestionsResult {
   error: string | null;
 }
 
+const topicPayload = topics.map(t => ({
+  id: t.id,
+  name: t.name,
+  description: t.description,
+  category: t.category,
+}));
+
+async function callGenerateTailored(cvText: string, jobText: string | null): Promise<string> {
+  const body = JSON.stringify({ cvText, jobText, topics: topicPayload });
+  const headers = { 'Content-Type': 'application/json' };
+
+  const attempt = async () => fetch('/api/generate-tailored', { method: 'POST', headers, body });
+
+  let res = await attempt();
+
+  // Retry once on 429 after waiting for the rate limit window
+  if (res.status === 429) {
+    const retryAfter = parseInt(res.headers.get('retry-after') ?? '20', 10);
+    await new Promise(resolve => setTimeout(resolve, (retryAfter + 2) * 1000));
+    res = await attempt();
+  }
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(`API error ${res.status}: ${errData.error ?? errData.detail ?? 'unknown'}`);
+  }
+
+  const data = await res.json();
+  return data?.text ?? '';
+}
+
 export function useTailoredQuestions(): UseTailoredQuestionsResult {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,45 +56,27 @@ export function useTailoredQuestions(): UseTailoredQuestionsResult {
     setGeneratedQuestions({ ...loadingMap });
 
     try {
-      // Single API call for all 9 topics
-      const res = await fetch('/api/generate-tailored', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cvText,
-          jobText: jobPostingText,
-          topics: topics.map(t => ({
-            id: t.id,
-            name: t.name,
-            description: t.description,
-            category: t.category,
-          })),
-        }),
-      });
+      const text = await callGenerateTailored(cvText, jobPostingText);
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(`API error ${res.status}: ${errData.error ?? 'unknown'}`);
-      }
+      const cleaned = text
+        .replace(/^```(?:json)?[\r\n]*/i, '')
+        .replace(/[\r\n]*```\s*$/i, '')
+        .trim();
 
-      const data = await res.json();
-      const text: string = data?.text ?? '';
-
-      const cleaned = text.replace(/^```(?:json)?[\r\n]*/i, '').replace(/[\r\n]*```\s*$/i, '').trim();
       const parsed = JSON.parse(cleaned);
       const topicsArr: { topicId: string; questions: string[] }[] = parsed?.topics ?? [];
 
       const finalMap: TailoredQuestionMap = { ...loadingMap };
 
       for (const item of topicsArr) {
-        const qs = Array.isArray(item.questions) ? item.questions : [];
+        const qs = Array.isArray(item.questions) ? [...item.questions] : [];
         if (qs.length > 0) {
           while (qs.length < 3) qs.push(qs[qs.length - 1]);
           finalMap[item.topicId] = { questions: qs.slice(0, 3), status: 'ready' };
         }
       }
 
-      // Any topic not returned → fallback
+      // Any topic not returned → fallback to static
       for (const topic of topics) {
         if (finalMap[topic.id]?.status === 'loading') {
           finalMap[topic.id] = { questions: topic.questions, status: 'fallback' };
@@ -74,7 +87,7 @@ export function useTailoredQuestions(): UseTailoredQuestionsResult {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Generation failed';
       setError(msg);
-      // Full fallback
+      // Full fallback so user can still practice
       const fallbackMap: TailoredQuestionMap = {};
       for (const topic of topics) {
         fallbackMap[topic.id] = { questions: topic.questions, status: 'fallback' };

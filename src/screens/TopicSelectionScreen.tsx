@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useScoreStore } from '../hooks/useScoreStore';
 import { useTopicMastery } from '../hooks/useTopicMastery';
+import { useTailoredMode } from '../context/TailoredModeContext';
 import { groupTopicsByCategory } from '../utils/groupTopicsByCategory';
 import { TopicCard } from '../components/TopicCard';
+import { CVUploadScreen } from './CVUploadScreen';
 import { topics } from '../data/topics';
 import { Category, Topic } from '../types';
 import { HistoryScreen } from './HistoryScreen';
@@ -35,17 +37,31 @@ export function TopicSelectionScreen() {
   const { selectTopic } = useAppContext();
   const { getScore } = useScoreStore();
   const { isMastered, masteredList, getGeneratedQuestions } = useTopicMastery();
+  const { mode, setMode, generatedQuestions, clearTailoredState } = useTailoredMode();
   const grouped = groupTopicsByCategory(topics);
   const [showHistory, setShowHistory] = useState(false);
 
   if (showHistory) return <HistoryScreen onClose={() => setShowHistory(false)} />;
 
   const handleSelectTopic = (topic: Topic) => {
+    if (mode === 'tailored') {
+      const entry = generatedQuestions[topic.id];
+      if (entry?.status === 'ready') {
+        selectTopic({ ...topic, questions: entry.questions });
+        return;
+      }
+    }
     const generated = getGeneratedQuestions(topic.id);
     selectTopic(generated?.length === 3 ? { ...topic, questions: generated } : topic);
   };
 
+  const handleModeSwitch = (newMode: 'classic' | 'tailored') => {
+    if (newMode === 'classic') clearTailoredState();
+    setMode(newMode);
+  };
+
   const hasMastered = masteredList.length > 0;
+  const hasGeneratedQuestions = Object.keys(generatedQuestions).length > 0;
 
   return (
     // Mobile: scrollable. Desktop: fixed height no-scroll
@@ -122,13 +138,42 @@ export function TopicSelectionScreen() {
               <h1 className="text-lg md:text-xl font-black text-white tracking-tight">Choose a Topic</h1>
               <p className="text-blue-200/60 text-xs mt-0.5 font-medium hidden sm:block">Select a category to begin your practice session</p>
             </div>
-            <div className="flex items-center gap-2 text-xs text-white/30 font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="hidden sm:inline">AI Scoring Active</span>
+            <div className="flex items-center gap-3">
+              {/* Mode toggle */}
+              <div className="flex items-center gap-1 p-1 rounded-xl glass border border-white/10">
+                <button
+                  onClick={() => handleModeSwitch('classic')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'classic' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/70'}`}
+                >Classic</button>
+                <button
+                  onClick={() => handleModeSwitch('tailored')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'tailored' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/30' : 'text-white/40 hover:text-white/70'}`}
+                >Tailored</button>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-white/30 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="hidden sm:inline">AI Scoring Active</span>
+              </div>
             </div>
           </div>
 
-          {/* Categories — scrollable on mobile, flex on desktop */}
+          {/* Tailored Mode banner */}
+          {mode === 'tailored' && (
+            <div className="shrink-0 mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-cyan-500/10 border border-cyan-400/25">
+              <span className="text-cyan-400 text-xs">✦</span>
+              <span className="text-xs font-bold text-cyan-300">Tailored Mode Active — questions personalized to your profile</span>
+            </div>
+          )}
+
+          {/* CV Upload screen when tailored and no questions yet */}
+          {mode === 'tailored' && !hasGeneratedQuestions && (
+            <div className="flex-1 overflow-y-auto">
+              <CVUploadScreen />
+            </div>
+          )}
+
+          {/* Categories grid */}
+          {(mode === 'classic' || hasGeneratedQuestions) && (
           <div className="flex-1 flex flex-col gap-3 md:gap-4 overflow-y-auto md:overflow-hidden md:min-h-0">
             {CATEGORIES.map(category => {
               const accent = CARD_ACCENT[category];
@@ -139,7 +184,6 @@ export function TopicSelectionScreen() {
                     <span className={`text-xs font-black uppercase tracking-widest ${accent.sectionLabel}`}>{category}</span>
                     <div className={`flex-1 h-px bg-gradient-to-r ${accent.divider}`} />
                   </div>
-                  {/* 1 col mobile, 2 col sm, 3 col lg */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 flex-1">
                     {grouped[category].map(topic => (
                       <TopicCard
@@ -150,6 +194,7 @@ export function TopicSelectionScreen() {
                         mastered={isMastered(topic.id)}
                         hasNewQuestions={!!getGeneratedQuestions(topic.id)}
                         onSelect={() => handleSelectTopic(topic)}
+                        tailoredStatus={mode === 'tailored' ? generatedQuestions[topic.id]?.status : undefined}
                       />
                     ))}
                   </div>
@@ -157,6 +202,7 @@ export function TopicSelectionScreen() {
               );
             })}
           </div>
+          )}
         </main>
       </div>
 

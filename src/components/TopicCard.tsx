@@ -9,17 +9,20 @@ interface TopicCardProps {
   mastered: boolean;
   hasNewQuestions: boolean;
   onSelect: () => void;
+  tailoredStatus?: 'loading' | 'ready' | 'fallback';
 }
 
-export function TopicCard({ topic, score, category, mastered, hasNewQuestions, onSelect }: TopicCardProps) {
+export function TopicCard({ topic, score, category, mastered, hasNewQuestions, onSelect, tailoredStatus }: TopicCardProps) {
   const accent = CARD_ACCENT[category];
+  const isLoading = tailoredStatus === 'loading';
 
   return (
     <button
-      onClick={onSelect}
+      onClick={isLoading ? undefined : onSelect}
       className={`
         group relative w-full h-full text-left p-4 rounded-2xl
-        glass border transition-all duration-200 cursor-pointer overflow-hidden card-shimmer
+        glass border transition-all duration-200 overflow-hidden card-shimmer
+        ${isLoading ? 'pointer-events-none opacity-60 cursor-default' : 'cursor-pointer'}
         ${mastered
           ? 'border-amber-400/40 hover:border-amber-400/80 hover:bg-amber-400/5'
           : `${accent.border} ${accent.activeBorder} hover:bg-white/10`
@@ -31,6 +34,11 @@ export function TopicCard({ topic, score, category, mastered, hasNewQuestions, o
       <div className={`absolute left-0 top-3 bottom-3 w-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200
         ${mastered ? 'bg-amber-400' : accent.dot}`}
       />
+
+      {/* Loading skeleton overlay */}
+      {tailoredStatus === 'loading' && (
+        <div className="absolute inset-0 rounded-2xl bg-white/5 animate-pulse" />
+      )}
 
       {/* Mastery crown overlay */}
       {mastered && (
@@ -58,12 +66,16 @@ export function TopicCard({ topic, score, category, mastered, hasNewQuestions, o
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {mastered ? (
+          {tailoredStatus === 'ready' ? (
+            <span className="text-xs font-bold text-cyan-400/90">✦ Tailored</span>
+          ) : tailoredStatus === 'fallback' ? (
+            <span className="text-xs font-semibold text-white/35">↓ Classic</span>
+          ) : mastered ? (
             <span className="text-xs font-bold text-amber-400/80">✦ Passed</span>
           ) : (
             <span className="text-xs text-white/25 font-semibold">{topic.questions.length} questions</span>
           )}
-          {hasNewQuestions && (
+          {hasNewQuestions && tailoredStatus !== 'ready' && (
             <span className="text-xs font-bold text-emerald-400/80">↑ Advanced</span>
           )}
         </div>

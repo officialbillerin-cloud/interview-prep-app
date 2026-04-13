@@ -225,8 +225,12 @@ export function useAnthropicScorer(): UseAnthropicScorerResult {
   const lastArgsRef = useRef<{ transcripts: string[]; questions: string[] } | null>(null);
 
   const run = useCallback(async (transcripts: string[], questions: string[]) => {
+    const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
     const apiKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
-    if (!apiKey) { setError('config-error'); return; }
+
+    // In production we use the /api/score proxy (no client-side key needed)
+    // In dev we need the local key
+    if (!isProduction && !apiKey) { setError('config-error'); return; }
 
     setIsLoading(true);
     setError(null);
@@ -234,7 +238,7 @@ export function useAnthropicScorer(): UseAnthropicScorerResult {
     setFeedback(null);
 
     try {
-      const result = await callGroq(apiKey, buildPrompt(transcripts, questions));
+      const result = await callGroq(apiKey ?? '', buildPrompt(transcripts, questions));
       setScore(result.score);
       setFeedback(result.feedback);
     } catch (err) {

@@ -103,8 +103,8 @@ export function ResultsView() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-2xl mx-auto w-full px-8 py-12 space-y-8">
-        <h1 className="text-4xl font-black text-white text-center">Your Results</h1>
+      <main className="flex-1 max-w-2xl mx-auto w-full px-4 md:px-8 py-8 md:py-12 space-y-6 md:space-y-8">
+        <h1 className="text-2xl md:text-4xl font-black text-white text-center">Your Results</h1>
 
         {isLoading && (
           <div className="flex flex-col items-center py-20 gap-5">

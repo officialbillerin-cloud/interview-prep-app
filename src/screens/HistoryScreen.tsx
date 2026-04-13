@@ -66,7 +66,7 @@ export function HistoryScreen({ onClose }: Props) {
     <div className="fixed inset-0 z-50 bg-[#0f1c35]/95 backdrop-blur-sm flex flex-col">
       {/* Header */}
       <header className="border-b border-white/10 bg-[#0f1c35]/80">
-        <div className="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-2xl mx-auto px-4 md:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
               <ellipse cx="16" cy="16" rx="10" ry="15" fill="url(#lgh)" transform="rotate(-20 16 16)" />
@@ -87,7 +87,7 @@ export function HistoryScreen({ onClose }: Props) {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto max-w-2xl mx-auto w-full px-6 py-8">
+      <main className="flex-1 overflow-y-auto max-w-2xl mx-auto w-full px-4 md:px-6 py-6 md:py-8">
         {selected ? (
           <SessionDetail record={selected} onBack={() => setSelected(null)} />
         ) : history.length === 0 ? (
